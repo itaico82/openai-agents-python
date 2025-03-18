@@ -1,87 +1,87 @@
-import { Agent, AgentExecutor, AgentTools } from '../../../src'
+import { Agent, AgentStatus } from "../types/Agent";
+import { TLShapeId, createShapeId } from "tldraw";
 import { AgentConfig, AgentInstance, WorkflowDefinition, ExecutionStatus, ExecutionResult } from './types'
 
 export class AgentIntegrationService {
-  private agents: Map<string, { instance: AgentInstance; executor: AgentExecutor }> = new Map()
+  private agents: Map<TLShapeId, Agent> = new Map()
   private executionLog: Array<{ timestamp: Date; agentId: string; message: string; level: 'info' | 'error' | 'debug' }> = []
   
-  async createAgent(config: AgentConfig): Promise<AgentInstance> {
-    try {
-      const agent = new Agent({
-        name: config.name,
-        prompt: config.prompt,
-        tools: config.tools?.map(toolName => AgentTools[toolName]).filter(Boolean) || []
-      })
-
-      const executor = new AgentExecutor(agent)
-      
-      const instance: AgentInstance = {
-        id: crypto.randomUUID(),
-        config,
+  constructor() {
+    // Initialize with some example agents for development
+    const mockAgents: Agent[] = [
+      {
+        id: createShapeId(),
+        name: 'Search Agent',
+        prompt: 'I am a search agent that helps find information.',
+        tools: ['search', 'summarize'],
+        parameters: {
+          temperature: 0.7,
+          maxTokens: 1000
+        },
         status: 'idle',
-        metrics: {
-          executionCount: 0,
-          averageExecutionTime: 0,
-          lastExecutionTime: 0
-        }
+        lastInput: null
+      },
+      {
+        id: createShapeId(),
+        name: 'Code Assistant',
+        prompt: 'I am a coding assistant that helps with programming tasks.',
+        tools: ['code_completion', 'code_review'],
+        parameters: {
+          temperature: 0.3,
+          maxTokens: 2000
+        },
+        status: 'idle',
+        lastInput: null
+      },
+      {
+        id: createShapeId(),
+        name: 'Data Analyzer',
+        prompt: 'I analyze data and provide insights.',
+        tools: ['data_analysis', 'visualization'],
+        parameters: {
+          temperature: 0.5,
+          maxTokens: 1500
+        },
+        status: 'idle',
+        lastInput: null
       }
-      
-      this.agents.set(instance.id, { instance, executor })
-      this.logDebug(instance.id, `Agent created: ${config.name}`)
-      return instance
-    } catch (error) {
-      this.logError('system', `Failed to create agent: ${error instanceof Error ? error.message : String(error)}`)
-      throw error
-    }
-  }
-  
-  async updateAgent(id: string, config: Partial<AgentConfig>): Promise<AgentInstance> {
-    try {
-      const agentData = this.agents.get(id)
-      if (!agentData) {
-        throw new Error(`Agent with id ${id} not found`)
-      }
-      
-      // Create a new agent with updated config
-      const updatedConfig = {
-        ...agentData.instance.config,
-        ...config
-      }
-      
-      const agent = new Agent({
-        name: updatedConfig.name,
-        prompt: updatedConfig.prompt,
-        tools: updatedConfig.tools?.map(toolName => AgentTools[toolName]).filter(Boolean) || []
-      })
+    ]
 
-      const executor = new AgentExecutor(agent)
-      
-      const updatedInstance = {
-        ...agentData.instance,
-        config: updatedConfig
-      }
-      
-      this.agents.set(id, { instance: updatedInstance, executor })
-      this.logDebug(id, `Agent updated: ${updatedConfig.name}`)
-      return updatedInstance
-    } catch (error) {
-      this.logError('system', `Failed to update agent ${id}: ${error instanceof Error ? error.message : String(error)}`)
-      throw error
-    }
+    // Add mock agents to the map
+    mockAgents.forEach(agent => this.agents.set(agent.id, agent))
   }
   
-  async deleteAgent(id: string): Promise<void> {
-    try {
-      const agentData = this.agents.get(id)
-      if (agentData) {
-        await agentData.executor.cleanup()
-        this.agents.delete(id)
-        this.logDebug(id, `Agent deleted`)
-      }
-    } catch (error) {
-      this.logError('system', `Failed to delete agent ${id}: ${error instanceof Error ? error.message : String(error)}`)
-      throw error
+  async createAgent(agentData: Omit<Agent, 'id' | 'status' | 'lastInput'>): Promise<Agent> {
+    const id = createShapeId()
+    const newAgent: Agent = {
+      ...agentData,
+      id,
+      status: 'idle',
+      lastInput: ''
     }
+    
+    this.agents.set(id, newAgent)
+    return newAgent
+  }
+  
+  async updateAgent(id: TLShapeId, config: Partial<AgentConfig>): Promise<Agent> {
+    const agentData = this.agents.get(id)
+    if (!agentData) {
+      throw new Error(`Agent with id ${id} not found`)
+    }
+    
+    const updatedAgent: Agent = {
+      ...agentData,
+      ...config,
+    }
+    
+    this.agents.set(id, updatedAgent)
+    this.logDebug(id, `Agent updated: ${updatedAgent.name}`)
+    return updatedAgent
+  }
+  
+  async deleteAgent(agentId: TLShapeId): Promise<boolean> {
+    return this.agents.delete(agentId)
   }
   
   async executeWorkflow(workflow: WorkflowDefinition): Promise<ExecutionResult> {
@@ -141,7 +141,7 @@ export class AgentIntegrationService {
         
         try {
           this.logInfo(agentId, `Execution started`)
-          agentData.instance.status = 'running'
+          agentData.status = 'running'
           
           const startTime = performance.now()
           const result = await agentData.executor.execute()
@@ -149,15 +149,15 @@ export class AgentIntegrationService {
           const executionTime = endTime - startTime
           
           // Update metrics
-          const { metrics } = agentData.instance
+          const { metrics } = agentData
           metrics.executionCount += 1
           metrics.lastExecutionTime = executionTime
           metrics.averageExecutionTime = 
             ((metrics.averageExecutionTime * (metrics.executionCount - 1)) + executionTime) / 
             metrics.executionCount
           
-          agentData.instance.status = 'idle'
-          agentData.instance.lastOutput = result
+          agentData.status = 'idle'
+          agentData.lastOutput = result
           
           executedAgents.add(agentId)
           executionResult.completedAgents.push(agentId)
@@ -168,7 +168,7 @@ export class AgentIntegrationService {
           const nextAgents = executionGraph.get(agentId) || new Set()
           await Promise.all([...nextAgents].map(executeAgent))
         } catch (error) {
-          agentData.instance.status = 'idle'
+          agentData.status = 'idle'
           const errorMsg = error instanceof Error ? error.message : String(error)
           executionResult.errors.push(errorMsg)
           executionResult.failedAgents.push(agentId)
@@ -240,7 +240,7 @@ export class AgentIntegrationService {
   }
   
   async getExecutionStatus(): Promise<ExecutionStatus> {
-    const agents = Array.from(this.agents.values()).map(data => data.instance)
+    const agents = Array.from(this.agents.values())
     const runningAgents = agents.filter(a => a.status !== 'idle')
     
     return {
@@ -257,15 +257,24 @@ export class AgentIntegrationService {
     if (!agentData) {
       throw new Error(`Agent with id ${id} not found`)
     }
-    return agentData.instance.status
+    return agentData.status
   }
   
-  async getAllAgents(): Promise<AgentInstance[]> {
-    return Array.from(this.agents.values()).map(data => data.instance)
+  async getAllAgents(): Promise<Agent[]> {
+    return Array.from(this.agents.values())
   }
   
-  getAvailableTools(): string[] {
-    return Object.keys(AgentTools)
+  async getAvailableTools(): Promise<string[]> {
+    return [
+      'search',
+      'summarize',
+      'code_completion',
+      'code_review',
+      'data_analysis',
+      'visualization',
+      'text_analysis',
+      'image_generation'
+    ]
   }
   
   getExecutionLogs(agentId?: string, limit = 100): Array<{ timestamp: Date; agentId: string; message: string; level: 'info' | 'error' | 'debug' }> {
@@ -291,5 +300,44 @@ export class AgentIntegrationService {
   
   private logDebug(agentId: string, message: string) {
     this.executionLog.push({ timestamp: new Date(), agentId, message, level: 'debug' });
+  }
+
+  async getExistingAgents(): Promise<Agent[]> {
+    return Array.from(this.agents.values())
+  }
+
+  async getAgentStatuses(agentIds: TLShapeId[]): Promise<Array<{
+    agentId: TLShapeId
+    status: AgentStatus
+    lastInput: string
+  }>> {
+    return agentIds.map(id => {
+      const agent = this.agents.get(id)
+      return {
+        agentId: id,
+        status: agent?.status || 'idle',
+        lastInput: agent?.lastInput || ''
+      }
+    })
+  }
+
+  async updateAgentStatus(agentId: TLShapeId, status: AgentStatus, lastInput?: string): Promise<void> {
+    const agent = this.agents.get(agentId)
+    if (agent) {
+      agent.status = status
+      if (lastInput !== undefined) {
+        agent.lastInput = lastInput
+      }
+      this.agents.set(agentId, agent)
+    }
+  }
+
+  // Method to simulate agent activity (for testing)
+  async simulateAgentActivity(agentId: TLShapeId): Promise<void> {
+    const statuses: AgentStatus[] = ['idle', 'running', 'processing']
+    const randomStatus = statuses[Math.floor(Math.random() * statuses.length)]
+    const randomInput = randomStatus === 'idle' ? null : `Sample input for ${agentId}`
+    
+    await this.updateAgentStatus(agentId, randomStatus, randomInput)
   }
 } 

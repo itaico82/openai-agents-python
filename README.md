@@ -66,13 +66,15 @@ pip install -r requirements.txt
 
 ## Documentation
 
-- [Getting Started Guide](docs/guides/getting-started.md)
-- [Architecture Overview](docs/guides/architecture.md)
-- [API Reference](docs/api/README.md)
+- [Quickstart Guide](docs/quickstart.md)
+- [Agent Configuration](docs/config.md)
+- [Tools and Integrations](docs/tools.md)
+- [Tracing and Monitoring](docs/tracing.md)
+- [Project Execution Plan](docs/EXECUTION_PLAN.md)
 
 ## Contributing
 
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+We welcome contributions! Please read our guidelines in the documentation for details on our code of conduct and the process for submitting pull requests.
 
 ## License
 

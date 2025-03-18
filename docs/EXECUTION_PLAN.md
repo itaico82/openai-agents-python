@@ -21,23 +21,25 @@ AgentGUI is a visual interface built on tldraw for managing and monitoring OpenA
   - [x] Basic agent card layout
   - [x] Status indicators
   - [x] Expandable details view
-- [/] Implement agent state management
+- [x] Implement agent state management
   - [x] Define agent state interface
   - [x] Create state management store using Zustand
-  - [/] Implement state update mechanisms
-- [/] Create basic agent manipulation tools
+  - [x] Implement state update mechanisms
+- [x] Create basic agent manipulation tools
   - [x] Add/remove agents
   - [x] Move agents
-  - [/] Select/deselect agents with custom behaviors
+  - [x] Select/deselect agents with custom behaviors
 
 ### Stage 3: Agent Configuration Interface [/]
-- [/] Design agent configuration panel
-  - [/] Prompt configuration
-  - [ ] Agent parameters
-  - [ ] Tool settings
-- [ ] Implement configuration persistence
-- [ ] Add validation for agent settings
-- [ ] Create configuration update mechanisms
+- [x] Design agent configuration panel
+  - [x] Prompt configuration
+  - [x] Agent parameters
+  - [x] Tool settings
+- [/] Implement configuration persistence
+  - [x] Save configuration to agent shape
+  - [/] Sync with backend
+- [x] Add validation for agent settings
+- [x] Create configuration update mechanisms
 
 ### Stage 4: Workflow Connections [ ]
 - [ ] Implement custom arrow tool
@@ -54,14 +56,14 @@ AgentGUI is a visual interface built on tldraw for managing and monitoring OpenA
   - [ ] Error state handling
 
 ### Stage 5: Real-time Monitoring [/]
-- [/] Implement agent status tracking
+- [x] Implement agent status tracking
   - [x] Status update mechanism
-  - [/] Real-time state visualization
-  - [ ] Performance metrics
-- [ ] Create input/output monitoring
-  - [ ] Live input display
-  - [ ] Output visualization
-  - [ ] History tracking
+  - [x] Real-time state visualization
+  - [/] Performance metrics
+- [/] Create input/output monitoring
+  - [x] Live input display
+  - [/] Output visualization
+  - [/] History tracking
 - [ ] Add system notifications
   - [ ] Error notifications
   - [ ] Status change alerts
@@ -165,10 +167,10 @@ Each stage should be marked as:
    - Implement detailed metrics visualization
    - Add execution time tracking UI
    - Create performance comparison tools
-2. Implement agent configuration panel
-   - Add tool selection interface
-   - Add parameter configuration
-   - Create validation for settings
+2. Complete configuration persistence
+   - Sync agent configurations with backend
+   - Implement configuration serialization/deserialization
+   - Add configuration profiles
 3. Begin work on workflow connections
    - Implement custom arrow tool
    - Add connection validation

@@ -27,6 +27,8 @@ export class AgentTool extends StateNode {
         name: 'New Agent',
         status: 'idle',
         prompt: '',
+        lastInput: '', // Ensure lastInput is initialized as empty string
+        lastOutput: '',
         tools: [], // Add empty tools array
         parameters: {}, // Add empty parameters object
         w: 200,
@@ -47,8 +49,9 @@ export class AgentTool extends StateNode {
     })
 
     if (shape) {
-      // TODO: Open agent configuration panel
-      console.log('Open config for:', shape.id)
+      // Inform the app that we want to configure this agent
+      // We'll select the shape, which the app will detect
+      this.editor.select(shape.id)
     }
   }
 } 

@@ -14,7 +14,7 @@ export type AgentShapeProps = {
   name: string
   status: 'idle' | 'running' | 'processing'
   prompt: string
-  lastInput?: string
+  lastInput: string
   lastOutput?: string
   tools?: string[]
   parameters?: Record<string, any>
@@ -56,7 +56,7 @@ export class AgentShapeUtil extends BaseBoxShapeUtil<AgentShape> {
     name: T.string,
     status: T.string,
     prompt: T.string,
-    lastInput: T.string.optional(),
+    lastInput: T.string,
     lastOutput: T.string.optional(),
     tools: T.jsonValue.optional(),
     parameters: T.jsonValue.optional(),
@@ -76,6 +76,7 @@ export class AgentShapeUtil extends BaseBoxShapeUtil<AgentShape> {
       name: 'New Agent',
       status: 'idle',
       prompt: '',
+      lastInput: '',
       tools: [],
       parameters: {},
       executionCount: 0,

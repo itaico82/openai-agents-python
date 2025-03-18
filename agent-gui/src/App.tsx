@@ -1,7 +1,14 @@
 import { Tldraw, Editor, createShapeId, TLShape, TLShapeId } from 'tldraw'
 import 'tldraw/tldraw.css'
 import { AgentShapeUtil, AgentTool } from './components/AgentShape'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { AgentConfigPanel } from './components/AgentConfig'
+import { AgentIntegrationService } from './integration/AgentIntegrationService'
+import { AgentShapeMapper } from './integration/AgentShapeMapper'
+
+// Initialize services
+const integrationService = new AgentIntegrationService()
+const shapeMapper = new AgentShapeMapper()
 
 // Robot icon SVG component
 const RobotIcon = () => (
@@ -68,8 +75,18 @@ const CustomToolbar = ({ onAddAgent }: { onAddAgent: () => void }) => {
   )
 }
 
-// Move TestControls to a separate component file later
-const TestControls = ({ editor, selectedAgent }: { editor: Editor, selectedAgent: TLShapeId | null }) => {
+// Move TestControls to a separate component
+const TestControls = ({ 
+  editor, 
+  selectedAgent,
+  integrationService,
+  onConfigureAgent 
+}: { 
+  editor: Editor, 
+  selectedAgent: TLShapeId | null,
+  integrationService: AgentIntegrationService,
+  onConfigureAgent: (id: TLShapeId) => void 
+}) => {
   if (!selectedAgent) return null
 
   const updateAgentStatus = (status: 'idle' | 'running' | 'processing') => {
@@ -84,9 +101,30 @@ const TestControls = ({ editor, selectedAgent }: { editor: Editor, selectedAgent
       props: {
         ...shape.props,
         status,
-        lastInput: status === 'processing' ? 'Processing test input...' : undefined
+        lastInput: status === 'processing' ? 'Processing test input...' : shape.props.lastInput || ''
       }
     })
+  }
+
+  const simulateActivity = async () => {
+    if (!selectedAgent) return
+    await integrationService.simulateAgentActivity(selectedAgent)
+    // Refresh the shape to show updated status
+    const agent = await integrationService.getAgentStatuses([selectedAgent])
+    if (agent[0]) {
+      const shape = editor.getShape(selectedAgent)
+      if (shape?.type === 'agent') {
+        editor.updateShape({
+          id: selectedAgent,
+          type: 'agent',
+          props: {
+            ...shape.props,
+            status: agent[0].status,
+            lastInput: agent[0].lastInput
+          }
+        })
+      }
+    }
   }
 
   return (
@@ -100,13 +138,47 @@ const TestControls = ({ editor, selectedAgent }: { editor: Editor, selectedAgent
       boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
       display: 'flex',
       flexDirection: 'column',
-      gap: 8
+      gap: 8,
+      zIndex: 1000
     }}>
-      <h3 style={{ margin: 0 }}>Test Controls</h3>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={() => updateAgentStatus('idle')}>Set Idle</button>
-        <button onClick={() => updateAgentStatus('running')}>Set Running</button>
-        <button onClick={() => updateAgentStatus('processing')}>Set Processing</button>
+      <h3 style={{ margin: 0 }}>Agent Controls</h3>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+        <button 
+          onClick={() => onConfigureAgent(selectedAgent)}
+          style={{
+            padding: '8px 16px',
+            borderRadius: '4px',
+            backgroundColor: '#3b82f6',
+            color: 'white',
+            border: 'none',
+            cursor: 'pointer',
+            fontWeight: 500
+          }}
+        >
+          Configure
+        </button>
+      </div>
+      <div style={{ borderTop: '1px solid #eee', paddingTop: 8 }}>
+        <h4 style={{ margin: '0 0 8px 0', fontSize: '14px' }}>Status Controls</h4>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <button onClick={() => updateAgentStatus('idle')}>Set Idle</button>
+          <button onClick={() => updateAgentStatus('running')}>Set Running</button>
+          <button onClick={() => updateAgentStatus('processing')}>Set Processing</button>
+        </div>
+        <button 
+          onClick={simulateActivity}
+          style={{
+            width: '100%',
+            padding: '8px',
+            backgroundColor: '#10b981',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer'
+          }}
+        >
+          Simulate Activity
+        </button>
       </div>
     </div>
   )
@@ -114,7 +186,10 @@ const TestControls = ({ editor, selectedAgent }: { editor: Editor, selectedAgent
 
 export default function App() {
   const [selectedAgent, setSelectedAgent] = useState<TLShapeId | null>(null)
+  const [configPanelOpen, setConfigPanelOpen] = useState(false)
+  const [configAgent, setConfigAgent] = useState<TLShapeId | null>(null)
   const [editor, setEditor] = useState<Editor | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
   const handleMount = (editor: Editor) => {
     setEditor(editor)
@@ -132,6 +207,72 @@ export default function App() {
         setSelectedAgent(null)
       }
     })
+
+    // Load initial state
+    loadInitialState(editor)
+  }
+
+  const loadInitialState = async (editor: Editor) => {
+    try {
+      setIsLoading(true)
+      
+      // Get existing agents from the integration service
+      const existingAgents = await integrationService.getExistingAgents()
+      
+      // Create shapes for each agent
+      existingAgents.forEach((agent) => {
+        const id = createShapeId()
+        const shape = shapeMapper.toShape(agent, id)
+        
+        // Add the shape to the editor
+        editor.createShape(shape)
+        
+        // Position the shape (you might want to implement a layout algorithm)
+        editor.updateShape({
+          id: shape.id,
+          type: 'agent',
+          x: Math.random() * 600 + 100, // Random position for now
+          y: Math.random() * 400 + 100,
+        })
+      })
+      
+      // Start monitoring agent statuses
+      startStatusMonitoring(editor, existingAgents.map(a => a.id))
+    } catch (error) {
+      console.error('Failed to load initial state:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const startStatusMonitoring = (editor: Editor, agentIds: string[]) => {
+    // Set up periodic status checks
+    const intervalId = setInterval(async () => {
+      try {
+        const statuses = await integrationService.getAgentStatuses(agentIds)
+        
+        // Update each agent's status in the editor
+        statuses.forEach(({ agentId, status, lastInput }) => {
+          const shape = editor.getShape(agentId)
+          if (shape?.type === 'agent') {
+            editor.updateShape({
+              id: agentId,
+              type: 'agent',
+              props: {
+                ...shape.props,
+                status,
+                lastInput: lastInput || ''
+              }
+            })
+          }
+        })
+      } catch (error) {
+        console.error('Failed to update agent statuses:', error)
+      }
+    }, 5000) // Check every 5 seconds
+
+    // Clean up interval on component unmount
+    return () => clearInterval(intervalId)
   }
 
   const handleAddAgent = () => {
@@ -147,12 +288,24 @@ export default function App() {
         name: 'New Agent',
         status: 'idle',
         prompt: '',
+        lastInput: '',
         tools: [],
         parameters: {},
         w: 200,
         h: 150,
       },
     })
+  }
+
+  const handleConfigPanelClose = () => {
+    setConfigPanelOpen(false)
+    setConfigAgent(null)
+  }
+
+  // Function to open config for a specific agent
+  const openAgentConfig = (agentId: TLShapeId) => {
+    setConfigAgent(agentId)
+    setConfigPanelOpen(true)
   }
 
   return (
@@ -166,8 +319,40 @@ export default function App() {
         shapeUtils={[AgentShapeUtil]}
         tools={[AgentTool]}
       />
+      {isLoading && (
+        <div style={{
+          position: 'fixed',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          background: 'white',
+          padding: '16px 24px',
+          borderRadius: '8px',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+          zIndex: 1000
+        }}>
+          Loading agents...
+        </div>
+      )}
       <CustomToolbar onAddAgent={handleAddAgent} />
-      {editor && <TestControls editor={editor} selectedAgent={selectedAgent} />}
+      {editor && (
+        <TestControls 
+          editor={editor} 
+          selectedAgent={selectedAgent}
+          integrationService={integrationService}
+          onConfigureAgent={openAgentConfig}
+        />
+      )}
+      
+      {/* Agent Configuration Panel */}
+      {editor && configPanelOpen && (
+        <AgentConfigPanel
+          editor={editor}
+          agentId={configAgent}
+          integrationService={integrationService}
+          onClose={handleConfigPanelClose}
+        />
+      )}
     </div>
   )
 }
