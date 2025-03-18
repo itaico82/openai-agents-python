@@ -1,0 +1,330 @@
+---
+description: Structured Output and Pydantic Models for OpenAI Agents
+globs: 
+alwaysApply: false
+type: agent_requested
+---
+# OpenAI Agents SDK - Structured Output
+
+## When to Use This Rule
+Use this rule when you need to implement structured outputs with Pydantic. This is appropriate when:
+- Creating agents that return structured, validated data instead of free-form text
+- Building agents that need to return complex, nested data structures
+- Implementing validation for agent outputs to ensure data quality
+- Using enums and other constrained types to control agent responses
+- Coordinating multiple agents that pass structured data between them
+- Creating systems where output data needs to be processed programmatically
+
+## Basic Structured Output
+
+Define structured output with Pydantic models:
+
+```python
+from agents import Agent, Runner
+from pydantic import BaseModel, Field
+import asyncio
+
+class MovieReview(BaseModel):
+    title: str
+    year: int
+    rating: float = Field(ge=0, le=10)
+    summary: str
+    strengths: list[str]
+    weaknesses: list[str]
+
+agent = Agent(
+    name="Movie Reviewer",
+    instructions="You review movies and provide structured feedback.",
+    output_type=MovieReview
+)
+
+async def main():
+    result = await Runner.run(agent, "Review the movie 'The Matrix'")
+    review = result.final_output_as(MovieReview)
+    
+    print(f"Review for {review.title} ({review.year})")
+    print(f"Rating: {review.rating}/10")
+    print(f"Summary: {review.summary}")
+    print("\nStrengths:")
+    for strength in review.strengths:
+        print(f"- {strength}")
+    print("\nWeaknesses:")
+    for weakness in review.weaknesses:
+        print(f"- {weakness}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Nested Models
+
+Create complex structured outputs with nested models:
+
+```python
+from agents import Agent, Runner
+from pydantic import BaseModel, Field
+from typing import List
+import asyncio
+
+class Character(BaseModel):
+    name: str
+    role: str
+    description: str
+
+class PlotPoint(BaseModel):
+    title: str
+    description: str
+    impact: int = Field(ge=1, le=10)
+
+class StoryAnalysis(BaseModel):
+    title: str
+    genre: List[str]
+    main_characters: List[Character]
+    key_plot_points: List[PlotPoint]
+    themes: List[str]
+    recommendation: str
+    rating: float = Field(ge=0, le=10)
+
+agent = Agent(
+    name="Story Analyzer",
+    instructions="Analyze stories and provide detailed structured feedback.",
+    output_type=StoryAnalysis
+)
+
+async def main():
+    result = await Runner.run(agent, "Analyze the story of 'The Lord of the Rings'")
+    analysis = result.final_output_as(StoryAnalysis)
+    
+    print(f"Analysis of {analysis.title}")
+    print(f"Genre: {', '.join(analysis.genre)}")
+    print(f"Rating: {analysis.rating}/10")
+    
+    print("\nMain Characters:")
+    for character in analysis.main_characters:
+        print(f"- {character.name}: {character.role}")
+        
+    print("\nKey Plot Points:")
+    for plot in analysis.key_plot_points:
+        print(f"- {plot.title} (Impact: {plot.impact}/10)")
+        
+    print(f"\nRecommendation: {analysis.recommendation}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Working with output_type
+
+The `output_type` parameter tells the agent the expected output structure:
+
+```python
+from agents import Agent, Runner
+from pydantic import BaseModel
+import asyncio
+
+# Simple output type
+class WeatherReport(BaseModel):
+    location: str
+    temperature: float
+    conditions: str
+    forecast: str
+
+# Create agent with this output type
+agent = Agent(
+    name="Weather Reporter",
+    instructions="You provide weather reports for locations.",
+    output_type=WeatherReport
+)
+
+async def main():
+    result = await Runner.run(agent, "What's the weather in San Francisco?")
+    
+    # Access the result as a WeatherReport object
+    weather = result.final_output_as(WeatherReport)
+    
+    # Work with the structured data
+    print(f"Weather for {weather.location}")
+    print(f"Temperature: {weather.temperature}°F")
+    print(f"Conditions: {weather.conditions}")
+    print(f"Forecast: {weather.forecast}")
+    
+    # You can also access the raw output
+    print("\nRaw output:")
+    print(result.final_output)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Field Validation
+
+Use Pydantic's validation for robust outputs:
+
+```python
+from agents import Agent, Runner
+from pydantic import BaseModel, Field, field_validator
+from typing import List
+import asyncio
+
+class ProductReview(BaseModel):
+    product_name: str
+    price: float = Field(ge=0)
+    rating: int = Field(ge=1, le=5)
+    pros: List[str] = Field(min_length=1, max_length=5)
+    cons: List[str] = Field(min_length=1, max_length=5)
+    summary: str = Field(min_length=10, max_length=500)
+    
+    @field_validator('pros', 'cons')
+    def check_points_length(cls, value):
+        for item in value:
+            if len(item) < 3:
+                raise ValueError("Each point must be at least 3 characters")
+        return value
+
+agent = Agent(
+    name="Product Reviewer",
+    instructions="Review products with detailed structured feedback.",
+    output_type=ProductReview
+)
+
+async def main():
+    result = await Runner.run(agent, "Review an iPhone 13")
+    review = result.final_output_as(ProductReview)
+    
+    print(f"Review for {review.product_name}")
+    print(f"Price: ${review.price}")
+    print(f"Rating: {review.rating}/5")
+    
+    print("\nPros:")
+    for pro in review.pros:
+        print(f"+ {pro}")
+        
+    print("\nCons:")
+    for con in review.cons:
+        print(f"- {con}")
+        
+    print(f"\nSummary: {review.summary}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Using Enums in Models
+
+Create structured outputs with predefined options:
+
+```python
+from agents import Agent, Runner
+from pydantic import BaseModel, Field
+from enum import Enum
+import asyncio
+
+class Sentiment(str, Enum):
+    POSITIVE = "positive"
+    NEUTRAL = "neutral"
+    NEGATIVE = "negative"
+
+class Priority(int, Enum):
+    LOW = 1
+    MEDIUM = 2
+    HIGH = 3
+
+class FeedbackAnalysis(BaseModel):
+    text: str
+    sentiment: Sentiment
+    priority: Priority
+    key_points: list[str] = Field(min_length=1)
+    action_needed: bool
+
+agent = Agent(
+    name="Feedback Analyzer",
+    instructions="Analyze customer feedback and categorize it.",
+    output_type=FeedbackAnalysis
+)
+
+async def main():
+    result = await Runner.run(
+        agent, 
+        "Customer feedback: The website is hard to navigate and I couldn't find what I needed."
+    )
+    analysis = result.final_output_as(FeedbackAnalysis)
+    
+    print(f"Feedback: {analysis.text}")
+    print(f"Sentiment: {analysis.sentiment.value}")
+    print(f"Priority: {analysis.priority.name} ({analysis.priority.value})")
+    print("\nKey Points:")
+    for point in analysis.key_points:
+        print(f"- {point}")
+    print(f"Action Needed: {'Yes' if analysis.action_needed else 'No'}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Multiple Output Types
+
+Use different output types with different agents:
+
+```python
+from agents import Agent, Runner
+from pydantic import BaseModel
+import asyncio
+
+# Different output types for different agents
+class QuestionClassification(BaseModel):
+    category: str
+    complexity: int  # 1-5
+    requires_research: bool
+
+class Answer(BaseModel):
+    text: str
+    confidence: float  # 0-1
+    sources: list[str]
+
+# First agent classifies the question
+classifier_agent = Agent(
+    name="Question Classifier",
+    instructions="Classify questions by category, complexity, and research needs.",
+    output_type=QuestionClassification
+)
+
+# Second agent answers the question
+answering_agent = Agent(
+    name="Answering Agent",
+    instructions="Answer questions with high confidence and cite sources.",
+    output_type=Answer
+)
+
+async def main():
+    user_question = "What causes black holes to form?"
+    
+    # Step 1: Classify the question
+    classification_result = await Runner.run(classifier_agent, user_question)
+    classification = classification_result.final_output_as(QuestionClassification)
+    
+    print(f"Question category: {classification.category}")
+    print(f"Complexity: {classification.complexity}/5")
+    print(f"Requires research: {'Yes' if classification.requires_research else 'No'}")
+    
+    # Step 2: Answer the question
+    answer_prompt = f"""
+    Question: {user_question}
+    Category: {classification.category}
+    Complexity: {classification.complexity}/5
+    
+    Please provide a detailed answer with sources.
+    """
+    
+    answer_result = await Runner.run(answering_agent, answer_prompt)
+    answer = answer_result.final_output_as(Answer)
+    
+    print("\nAnswer:")
+    print(answer.text)
+    print(f"Confidence: {answer.confidence:.2f}")
+    
+    print("\nSources:")
+    for source in answer.sources:
+        print(f"- {source}")
+
+if __name__ == "__main__":
+    asyncio.run(main()) 
