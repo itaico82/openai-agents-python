@@ -1,0 +1,266 @@
+---
+description: Common Architectural Patterns for OpenAI Agents
+globs: 
+alwaysApply: false
+type: agent_requested
+---
+# OpenAI Agents SDK - Common Agent Patterns
+
+## When to Use This Rule
+Use this rule when you need to implement advanced agent patterns. This is appropriate when:
+- Creating multi-step workflows with specialized agents for each step
+- Building systems that need to route queries to different specialized agents
+- Implementing agents that leverage other agents as tools
+- Creating systems that evaluate and refine their own outputs
+- Running multiple agents in parallel for efficiency or redundancy
+- Implementing guardrails within complex agent systems
+
+## Deterministic Flows
+
+Break tasks into a series of steps with specialized agents:
+
+```python
+from agents import Agent, Runner
+from pydantic import BaseModel
+import asyncio
+
+# Step 1: Generate outline
+outline_agent = Agent(
+    name="Outline Generator",
+    instructions="Generate a short outline based on the user's input."
+)
+
+# Step 2: Check quality
+class QualityCheckOutput(BaseModel):
+    good_quality: bool
+    reasoning: str
+
+quality_checker_agent = Agent(
+    name="Quality Checker",
+    instructions="Check if the outline meets quality standards.",
+    output_type=QualityCheckOutput
+)
+
+# Step 3: Generate final content
+content_agent = Agent(
+    name="Content Generator",
+    instructions="Create full content based on the approved outline."
+)
+
+async def main():
+    # Step 1: Generate outline
+    outline_result = await Runner.run(outline_agent, user_input)
+    
+    # Step 2: Check quality
+    check_result = await Runner.run(quality_checker_agent, outline_result.final_output)
+    quality_check = check_result.final_output_as(QualityCheckOutput)
+    
+    # Only proceed if quality is good
+    if not quality_check.good_quality:
+        print(f"Outline rejected: {quality_check.reasoning}")
+        return
+        
+    # Step 3: Generate final content
+    content_result = await Runner.run(content_agent, outline_result.final_output)
+    print(content_result.final_output)
+```
+
+## Routing Pattern
+
+Create specialized agents and a router to direct traffic:
+
+```python
+from agents import Agent, Runner
+import asyncio
+
+# Specialized agents
+support_agent = Agent(
+    name="Support Agent",
+    instructions="Handle customer support issues."
+)
+
+sales_agent = Agent(
+    name="Sales Agent",
+    instructions="Handle sales inquiries."
+)
+
+technical_agent = Agent(
+    name="Technical Agent",
+    instructions="Handle technical questions."
+)
+
+# Router agent
+router_agent = Agent(
+    name="Router",
+    instructions="""Route inquiries to the appropriate specialized agent:
+    - Support Agent: For customer service issues
+    - Sales Agent: For pricing, ordering, and product availability
+    - Technical Agent: For technical questions and troubleshooting
+    """,
+    handoffs=[support_agent, sales_agent, technical_agent]
+)
+```
+
+## Agents as Tools
+
+Use agents as tools within other agents:
+
+```python
+from agents import Agent, Runner, function_tool
+import asyncio
+
+# Create worker agents
+translator_agent = Agent(
+    name="Translator",
+    instructions="Translate text to the specified language."
+)
+
+summarizer_agent = Agent(
+    name="Summarizer",
+    instructions="Summarize the provided text concisely."
+)
+
+# Create tool functions that use the agents
+@function_tool
+async def translate_text(text: str, target_language: str) -> str:
+    """Translate text to the specified language."""
+    result = await Runner.run(
+        translator_agent,
+        f"Translate this to {target_language}: {text}"
+    )
+    return result.final_output
+
+@function_tool
+async def summarize_text(text: str, max_length: int = 100) -> str:
+    """Summarize text within the specified length."""
+    result = await Runner.run(
+        summarizer_agent,
+        f"Summarize this text in {max_length} characters or less: {text}"
+    )
+    return result.final_output
+
+# Main agent that uses the tool agents
+coordinator_agent = Agent(
+    name="Coordinator",
+    instructions="Help users process text using translation and summarization.",
+    tools=[translate_text, summarize_text]
+)
+```
+
+## LLM as a Judge
+
+Use one agent to evaluate another's output:
+
+```python
+from agents import Agent, Runner
+from pydantic import BaseModel
+import asyncio
+
+# Output creator
+content_agent = Agent(
+    name="Content Creator",
+    instructions="Create content based on the user's request."
+)
+
+# Evaluation model
+class ContentEvaluation(BaseModel):
+    score: int  # 1-10
+    feedback: str
+    suggestions: list[str]
+
+judge_agent = Agent(
+    name="Content Judge",
+    instructions="Evaluate content on a scale of 1-10 and provide feedback.",
+    output_type=ContentEvaluation
+)
+
+async def main():
+    # Generate content
+    content_result = await Runner.run(content_agent, user_request)
+    content = content_result.final_output
+    
+    # Evaluate content
+    eval_result = await Runner.run(
+        judge_agent,
+        f"Please evaluate this content:\n\n{content}"
+    )
+    evaluation = eval_result.final_output_as(ContentEvaluation)
+    
+    # Handle based on score
+    if evaluation.score >= 7:
+        print(f"Content approved (score: {evaluation.score}/10)")
+        return content
+    else:
+        print(f"Content needs improvement (score: {evaluation.score}/10)")
+        print(f"Feedback: {evaluation.feedback}")
+        
+        # Optionally: Regenerate with feedback
+        improved_result = await Runner.run(
+            content_agent,
+            f"Original request: {user_request}\n\nFeedback: {evaluation.feedback}\n\nPlease create improved content."
+        )
+        return improved_result.final_output
+```
+
+## Parallelization
+
+Run multiple agents in parallel:
+
+```python
+from agents import Agent, Runner
+import asyncio
+
+# Create agents
+agent_a = Agent(name="Agent A", instructions="You are Agent A.")
+agent_b = Agent(name="Agent B", instructions="You are Agent B.")
+agent_c = Agent(name="Agent C", instructions="You are Agent C.")
+
+async def main():
+    # Run agents in parallel
+    tasks = [
+        Runner.run(agent_a, "Task for Agent A"),
+        Runner.run(agent_b, "Task for Agent B"),
+        Runner.run(agent_c, "Task for Agent C")
+    ]
+    
+    results = await asyncio.gather(*tasks)
+    
+    # Process results
+    for i, result in enumerate(results):
+        print(f"Agent {chr(65 + i)} result: {result.final_output}")
+```
+
+## Input and Output Guardrails
+
+Apply guardrails for safety and quality control:
+
+```python
+from agents import (
+    Agent, 
+    GuardrailFunctionOutput,
+    InputGuardrailTripwireTriggered,
+    OutputGuardrailTripwireTriggered,
+    input_guardrail,
+    output_guardrail,
+    Runner
+)
+
+# Basic guardrails
+@input_guardrail
+async def safety_guardrail(context, agent, input):
+    is_unsafe = "harmful_term" in str(input).lower()
+    return GuardrailFunctionOutput(tripwire_triggered=is_unsafe)
+
+@output_guardrail
+async def quality_guardrail(context, agent, output, input):
+    is_poor_quality = len(output) < 20
+    return GuardrailFunctionOutput(tripwire_triggered=is_poor_quality)
+
+# Apply guardrails to agent
+agent = Agent(
+    name="Safe Quality Agent",
+    instructions="You provide helpful, high-quality responses.",
+    input_guardrails=[safety_guardrail],
+    output_guardrails=[quality_guardrail]
+)
+``` 

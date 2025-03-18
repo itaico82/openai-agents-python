@@ -1,0 +1,253 @@
+---
+description: Tracing and Monitoring for OpenAI Agents
+globs: 
+alwaysApply: false
+type: agent_requested
+---
+# OpenAI Agents SDK - Tracing
+
+## When to Use This Rule
+Use this rule when you need to implement tracing and monitoring. This is appropriate when:
+- Debugging complex agent workflows and understanding agent behavior
+- Monitoring agent performance in production environments
+- Adding contextual information to trace events for better analytics
+- Creating hierarchical traces for multi-step or multi-agent workflows
+- Integrating with external monitoring systems or observability platforms
+- Building custom trace processors for specialized logging needs
+
+## Basic Tracing
+
+The Agents SDK includes built-in tracing to monitor agent activity:
+
+```python
+from agents import Agent, Runner, trace
+import asyncio
+
+async def main():
+    # Trace an entire workflow
+    with trace(workflow_name="My Agent Workflow"):
+        agent = Agent(
+            name="Assistant",
+            instructions="You are a helpful assistant."
+        )
+        
+        result = await Runner.run(agent, "Tell me about tracing in the Agents SDK.")
+        print(result.final_output)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Customizing Traces
+
+Add attributes to traces for better context:
+
+```python
+from agents import Agent, Runner, trace
+import asyncio
+
+async def main():
+    # Add custom attributes to trace
+    with trace(
+        workflow_name="Customer Support",
+        attributes={
+            "customer_id": "12345",
+            "request_type": "technical",
+            "priority": "high"
+        }
+    ):
+        agent = Agent(
+            name="Support Agent",
+            instructions="You help customers with technical issues."
+        )
+        
+        result = await Runner.run(agent, "My computer won't turn on.")
+        print(result.final_output)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Nested Traces
+
+Create hierarchical traces for complex workflows:
+
+```python
+from agents import Agent, Runner, trace
+import asyncio
+
+async def main():
+    # Parent trace for the entire workflow
+    with trace(workflow_name="Multi-Step Workflow"):
+        # Create an agent
+        agent = Agent(
+            name="Assistant",
+            instructions="You are a helpful assistant."
+        )
+        
+        # First subtrace
+        with trace(workflow_name="Step 1 - Information Gathering"):
+            step1_result = await Runner.run(agent, "What are the key points to consider?")
+        
+        # Second subtrace
+        with trace(workflow_name="Step 2 - Analysis"):
+            step2_result = await Runner.run(
+                agent, 
+                f"Based on these points: {step1_result.final_output}, what should we do?"
+            )
+        
+        print(step2_result.final_output)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Custom Trace Processors
+
+Create custom processors to send traces to external systems:
+
+```python
+from agents import Agent, Runner, trace
+from agents.tracing import TraceProcessor, TraceEvent
+import asyncio
+
+class CustomTraceProcessor(TraceProcessor):
+    async def process_trace(self, event: TraceEvent) -> None:
+        # Process the trace event
+        print(f"Event: {event.event_type} for {event.name}")
+        
+        # Here you could send to a monitoring system
+        # await send_to_monitoring_system(event)
+
+# Register your custom processor
+from agents.tracing import add_trace_processor
+add_trace_processor(CustomTraceProcessor())
+
+async def main():
+    with trace(workflow_name="Custom Traced Workflow"):
+        agent = Agent(
+            name="Assistant",
+            instructions="You are a helpful assistant."
+        )
+        
+        result = await Runner.run(agent, "Hello world")
+        print(result.final_output)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Run Context for Tracing
+
+Pass context between different operations for connected traces:
+
+```python
+from agents import Agent, Runner, RunContext, trace
+import asyncio
+
+async def main():
+    # Create a context object to track the entire session
+    context = RunContext()
+    
+    with trace(workflow_name="Session Workflow"):
+        agent = Agent(
+            name="Assistant",
+            instructions="You are a helpful assistant."
+        )
+        
+        # First message with context
+        result1 = await Runner.run(
+            agent, 
+            "What is the capital of France?",
+            context=context
+        )
+        
+        # Second message using the same context
+        result2 = await Runner.run(
+            agent, 
+            result1.to_input_list() + [{"role": "user", "content": "What about Italy?"}],
+            context=context
+        )
+        
+        print(result2.final_output)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Debugging with Traces
+
+Use traces for effective debugging:
+
+```python
+from agents import Agent, Runner, trace, AgentHooks, RunContextWrapper
+import asyncio
+
+class DebugHooks(AgentHooks):
+    async def on_start(self, context: RunContextWrapper, agent: Agent) -> None:
+        print(f"⏱ Starting agent {agent.name}")
+        
+    async def on_end(self, context: RunContextWrapper, agent: Agent, output: str) -> None:
+        print(f"✅ Finished agent {agent.name}")
+        
+    async def on_error(self, context: RunContextWrapper, agent: Agent, error: Exception) -> None:
+        print(f"❌ Error in agent {agent.name}: {error}")
+
+async def main():
+    with trace(workflow_name="Debug Workflow"):
+        agent = Agent(
+            name="Debug Agent",
+            instructions="You help debug issues.",
+            hooks=DebugHooks()
+        )
+        
+        try:
+            result = await Runner.run(agent, "Debug this workflow")
+            print(result.final_output)
+        except Exception as e:
+            print(f"Caught exception: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Integration with External Tracing Systems
+
+Connect with popular observability platforms:
+
+```python
+# Example integrating with a popular tracing system
+from agents import Agent, Runner, trace
+import asyncio
+
+# This is just an example - check documentation for actual integration code
+try:
+    # Import specific tracing integration
+    from agents.tracing.integrations import set_up_logfire_integration
+    # Or from external packages
+    # from logfire.integrations.openai_agents import set_up_logfire_integration
+    
+    # Configure the integration
+    set_up_logfire_integration(
+        api_key="your-api-key",
+        dataset="production",
+        service_name="my-agent-service"
+    )
+    
+    print("External tracing configured")
+except ImportError:
+    print("External tracing not available")
+
+async def main():
+    with trace(workflow_name="Production Workflow"):
+        agent = Agent(
+            name="Production Agent",
+            instructions="You are a production-grade assistant."
+        )
+        
+        result = await Runner.run(agent, "Hello world")
+        print(result.final_output)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+``` 

@@ -1,0 +1,163 @@
+---
+description: Input and Output Guardrails for OpenAI Agents
+globs: 
+alwaysApply: false
+type: agent_requested
+---
+# OpenAI Agents SDK - Guardrails
+
+## When to Use This Rule
+Use this rule when you need to implement safety and quality guardrails. This is appropriate when:
+- Building agents that need content moderation and safety controls
+- Creating systems that validate user inputs before processing
+- Implementing quality controls for agent responses
+- Building multi-layer safety systems with multiple validation steps
+- Handling errors and exceptions from guardrail tripwires
+
+## Input Guardrails
+
+Input guardrails let you validate and filter user inputs before they reach your agent:
+
+```python
+from agents import Agent, GuardrailFunctionOutput, InputGuardrailTripwireTriggered, RunContextWrapper, Runner, input_guardrail
+from pydantic import BaseModel
+
+class ContentCheckOutput(BaseModel):
+    reasoning: str
+    is_inappropriate: bool
+
+guardrail_agent = Agent(
+    name="Guardrail Check",
+    instructions="Check if the input contains inappropriate content.",
+    output_type=ContentCheckOutput
+)
+
+@input_guardrail
+async def content_guardrail(context, agent, input):
+    result = await Runner.run(guardrail_agent, input, context=context.context)
+    final_output = result.final_output_as(ContentCheckOutput)
+    
+    return GuardrailFunctionOutput(
+        output_info=final_output,
+        tripwire_triggered=final_output.is_inappropriate
+    )
+
+main_agent = Agent(
+    name="Main Agent",
+    instructions="You are a helpful assistant.",
+    input_guardrails=[content_guardrail]
+)
+
+try:
+    result = await Runner.run(main_agent, user_input)
+    print(result.final_output)
+except InputGuardrailTripwireTriggered:
+    print("Sorry, I cannot process that request.")
+```
+
+## Output Guardrails
+
+Output guardrails validate your agent's responses before they're returned:
+
+```python
+from agents import Agent, GuardrailFunctionOutput, OutputGuardrailTripwireTriggered, RunContextWrapper, Runner, output_guardrail
+
+@output_guardrail
+async def tone_guardrail(context, agent, output, input):
+    # Check if output maintains the appropriate tone
+    if "rude phrase" in output.lower():
+        return GuardrailFunctionOutput(
+            output_info={"reason": "Response contains rude language"},
+            tripwire_triggered=True
+        )
+    return GuardrailFunctionOutput(tripwire_triggered=False)
+
+agent = Agent(
+    name="Polite Assistant",
+    instructions="You are a very polite assistant.",
+    output_guardrails=[tone_guardrail]
+)
+
+try:
+    result = await Runner.run(agent, user_input)
+    print(result.final_output)
+except OutputGuardrailTripwireTriggered:
+    print("The agent's response did not meet our standards.")
+```
+
+## Guardrail Parameters
+
+- Input guardrails use the `@input_guardrail` decorator
+- Output guardrails use the `@output_guardrail` decorator
+- Both return a `GuardrailFunctionOutput` with:
+  - `tripwire_triggered`: Boolean indicating if the guardrail was triggered
+  - `output_info`: Optional data providing context for the guardrail decision
+
+## Complete Guardrail Example
+
+```python
+from agents import (
+    Agent, 
+    GuardrailFunctionOutput, 
+    InputGuardrailTripwireTriggered,
+    OutputGuardrailTripwireTriggered,
+    RunContextWrapper, 
+    Runner, 
+    input_guardrail,
+    output_guardrail
+)
+from pydantic import BaseModel
+import asyncio
+
+# Input guardrail
+@input_guardrail
+async def profanity_guardrail(context, agent, input):
+    # Check for inappropriate content
+    contains_profanity = any(word in str(input).lower() for word in ["bad_word1", "bad_word2"])
+    
+    return GuardrailFunctionOutput(
+        output_info={"reason": "Contains profanity" if contains_profanity else "Clean"},
+        tripwire_triggered=contains_profanity
+    )
+
+# Output guardrail
+@output_guardrail
+async def output_length_guardrail(context, agent, output, input):
+    # Ensure output isn't too long
+    if len(output) > 500:
+        return GuardrailFunctionOutput(
+            output_info={"reason": "Response too long"},
+            tripwire_triggered=True
+        )
+    return GuardrailFunctionOutput(tripwire_triggered=False)
+
+# Main agent with both guardrails
+agent = Agent(
+    name="Safe Assistant",
+    instructions="You are a helpful and concise assistant.",
+    input_guardrails=[profanity_guardrail],
+    output_guardrails=[output_length_guardrail]
+)
+
+async def main():
+    user_input = input("Ask a question: ")
+    
+    try:
+        result = await Runner.run(agent, user_input)
+        print(f"Response: {result.final_output}")
+    except InputGuardrailTripwireTriggered as e:
+        print(f"Input rejected: {e}")
+    except OutputGuardrailTripwireTriggered as e:
+        print(f"Output rejected: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Best Practices
+
+1. **Fail Fast**: Use guardrails to catch issues early in your agent workflows
+2. **Defense in Depth**: Use both input and output guardrails for critical applications
+3. **Provide Context**: Include reasoning in `output_info` for better debugging
+4. **Performance**: Keep guardrail checks light and fast if possible
+5. **Error Handling**: Always wrap agent runs in try/except to handle tripwires 

@@ -1,0 +1,161 @@
+---
+description: Agent Handoffs and Control Transfer for OpenAI Agents
+globs: 
+alwaysApply: false
+type: agent_requested
+---
+# OpenAI Agents SDK - Handoffs
+
+## When to Use This Rule
+Use this rule when you need to implement agent handoffs in your application. This is appropriate when:
+- Building multi-agent systems where different agents handle different tasks
+- Creating a routing system to direct queries to specialized agents
+- Implementing language-specific agents that handle different languages
+- Customizing the conversation history passed between agents
+- Tracking handoff events between different agents
+
+## Basic Handoff
+
+Handoffs allow agents to transfer control to other agents:
+
+```python
+from agents import Agent, Runner
+import asyncio
+
+spanish_agent = Agent(
+    name="Spanish Agent",
+    instructions="You only speak Spanish."
+)
+
+english_agent = Agent(
+    name="English Agent",
+    instructions="You only speak English."
+)
+
+triage_agent = Agent(
+    name="Triage Agent",
+    instructions="Handoff to the appropriate agent based on the language of the request.",
+    handoffs=[spanish_agent, english_agent]
+)
+
+async def main():
+    result = await Runner.run(triage_agent, "Hola, ¿cómo estás?")
+    print(result.final_output)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Handoff Parameters
+
+- Configure handoffs by providing a list of agents: `handoffs=[agent1, agent2]`
+- Agents must be initialized before being passed to handoffs
+- The handoffs list defines which agents can receive control
+
+## Handoff Control Flow
+
+1. The current agent decides to handoff to another agent
+2. It makes a handoff "tool call" specifying the target agent
+3. The target agent receives control and continues execution
+4. The handoff target receives the conversation history
+
+## Customizing Handoffs with Filters
+
+Use input filters to modify what the target agent receives:
+
+```python
+from agents import Agent, HandoffInputData, Runner, handoff, handoff_filters
+
+def custom_filter(handoff_data: HandoffInputData) -> HandoffInputData:
+    # Remove tool-related messages from history
+    filtered_data = handoff_filters.remove_all_tools(handoff_data)
+    
+    # Customize what the target agent sees
+    return filtered_data
+
+agent_a = Agent(
+    name="Agent A",
+    instructions="You are the first agent."
+)
+
+agent_b = Agent(
+    name="Agent B",
+    instructions="You are the second agent."
+)
+
+main_agent = Agent(
+    name="Main Agent",
+    instructions="Coordinate between agents.",
+    handoffs=[
+        handoff(agent_a),  # Standard handoff
+        handoff(agent_b, input_filter=custom_filter)  # With custom filter
+    ]
+)
+```
+
+## Handoff Events
+
+Track handoffs with hooks:
+
+```python
+from agents import Agent, AgentHooks, RunContextWrapper
+
+class CustomHooks(AgentHooks):
+    async def on_handoff(self, context: RunContextWrapper, agent: Agent, source: Agent) -> None:
+        print(f"Handoff from {source.name} to {agent.name}")
+
+agent = Agent(
+    name="Handoff User",
+    hooks=CustomHooks(),
+    handoffs=[other_agent]
+)
+```
+
+## Routing Pattern Example
+
+```python
+from agents import Agent, Runner
+import asyncio
+
+# Specialized agents
+math_agent = Agent(
+    name="Math Agent",
+    instructions="You solve math problems only."
+)
+
+weather_agent = Agent(
+    name="Weather Agent",
+    instructions="You provide weather information only."
+)
+
+trivia_agent = Agent(
+    name="Trivia Agent",
+    instructions="You answer trivia questions only."
+)
+
+# Router agent
+router_agent = Agent(
+    name="Router",
+    instructions="""
+    You're a routing agent that determines which specialized agent should handle a request.
+    - Math Agent: For math calculations and problems
+    - Weather Agent: For weather-related questions
+    - Trivia Agent: For general knowledge questions
+    
+    Make a handoff to the appropriate agent based on the user's query.
+    """,
+    handoffs=[math_agent, weather_agent, trivia_agent]
+)
+
+async def main():
+    while True:
+        user_query = input("Ask a question (or type 'exit' to quit): ")
+        if user_query.lower() == 'exit':
+            break
+            
+        result = await Runner.run(router_agent, user_query)
+        print(f"Answer: {result.final_output}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+``` 
