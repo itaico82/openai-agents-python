@@ -1,0 +1,22 @@
+---
+description: Instructions on how to start a new project
+globs: 
+alwaysApply: false
+---
+# Rules for setting up a new project
+
+## Plan document
+- Write a short and concise project brief and present it to the user to make sure the user's intent is captures. Repeate this until the user is content
+- Break the task up for stages, laying out the end to end process required to make the project work
+- Show the user a high level plan and ask for feedback and clarification
+- Create a methodical and detailed execution plan on how to execute the project's purpose
+- Document the plan's stages and requirements in segments and line items, with tickboxes for each line to follow up on progress as the project progresses. Put the file in the documentation folder and call it EXECUTION_PLAN.MD
+
+## Readme
+- Create a readable and concise readme.md file that would outline the project
+
+## Github
+ - Set up the new project as a new project in github
+ - Make the project private
+ - Create a new branch for project setup
+ - Set this branch as current

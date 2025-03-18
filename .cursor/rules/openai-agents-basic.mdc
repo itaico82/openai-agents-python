@@ -1,0 +1,83 @@
+---
+description: Basic Usage of LLM OpenAI Agents
+globs: 
+alwaysApply: false
+type: agent_requested
+---
+# OpenAI Agents SDK - Basic Usage
+
+## When to Use This Rule
+Use this rule when you need to implement basic OpenAI agents functionality. This is appropriate when:
+- Setting up a simple AI agent that provides text responses
+- Understanding the fundamental concepts of the Agents SDK
+- Creating a basic agent with minimal configuration
+- Learning the basic execution flow for agents
+
+## Creating and Running Agents
+
+Basic structure for creating and running agents:
+
+```python
+from agents import Agent, Runner
+import asyncio
+
+# Create an agent with instructions
+agent = Agent(
+    name="Assistant",
+    instructions="You are a helpful assistant."
+)
+
+# Run the agent synchronously
+async def main():
+    result = await Runner.run(agent, "Your query here")
+    print(result.final_output)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Key Components
+
+- **Agent**: Defines behavior with instructions, name, and optional tools/handoffs
+- **Runner**: Manages the execution of agents
+- **run/run_sync**: Methods to execute agents (async/sync)
+
+## Basic Agent Parameters
+
+- `name`: Identifier for the agent
+- `instructions`: Behavior guidance for the agent 
+- `tools`: List of tools the agent can use
+- `handoffs`: List of agents this agent can transfer control to
+- `model`: Model to use (default is GPT-4)
+- `output_type`: Expected return type for structured outputs
+
+## Agent Execution Loop
+
+1. Agent receives input
+2. LLM generates response (may include tool calls)
+3. If response has final output, loop ends
+4. If response has handoff, control transfers to new agent
+5. If response has tool calls, tools execute and loop continues
+
+## Example: Hello World
+
+```python
+import asyncio
+from agents import Agent, Runner
+
+async def main():
+    agent = Agent(
+        name="Assistant",
+        instructions="You only respond in haikus."
+    )
+    
+    result = await Runner.run(agent, "Tell me about recursion in programming.")
+    print(result.final_output)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Environment Setup
+
+Set `OPENAI_API_KEY` environment variable before running agents. 

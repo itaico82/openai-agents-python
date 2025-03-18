@@ -1,0 +1,133 @@
+---
+description: Tools and Function Integrations for OpenAI Agents
+globs: 
+alwaysApply: false
+type: agent_requested
+---
+# OpenAI Agents SDK - Tools
+
+## When to Use This Rule
+Use this rule when you need to add tools to your OpenAI agents. This is appropriate when:
+- Creating agents that need to interact with external systems or APIs
+- Building agents that perform actions beyond just generating text
+- Implementing function calling capabilities in your agents
+- Creating custom tools for specific domain capabilities
+- Tracking tool usage with events and hooks
+
+## Function Tools
+
+Create function tools using the `@function_tool` decorator:
+
+```python
+from agents import Agent, Runner, function_tool
+import asyncio
+
+@function_tool
+def get_weather(city: str) -> str:
+    """Return weather for a given city."""
+    return f"The weather in {city} is sunny."
+
+async def main():
+    agent = Agent(
+        name="Weather Assistant",
+        instructions="You help users check the weather.",
+        tools=[get_weather]
+    )
+    
+    result = await Runner.run(agent, "What's the weather in Tokyo?")
+    print(result.final_output)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Built-in Tools
+
+The SDK provides several built-in tools:
+
+```python
+from agents import WebSearchTool, Agent, Runner
+
+agent = Agent(
+    name="Web searcher",
+    instructions="You search the web for information.",
+    tools=[WebSearchTool(user_location={"type": "approximate", "city": "New York"})]
+)
+```
+
+## Tool Parameters
+
+- Tool functions should have type annotations for parameters and return values
+- Include docstrings to help the agent understand tool purpose
+- Tools are passed to Agent as a list: `tools=[tool1, tool2]`
+
+## Advanced Tool Usage
+
+### Custom Tool Class
+
+For complex tools, create a custom class:
+
+```python
+from agents import Tool
+from typing import Any, Dict
+
+class CustomTool(Tool):
+    name = "custom_tool"
+    description = "Performs a custom operation"
+    
+    async def invoke(self, parameters: Dict[str, Any]) -> str:
+        # Custom implementation
+        return "Result of custom operation"
+```
+
+### Tool Events
+
+Track tool execution with hooks:
+
+```python
+from agents import Agent, AgentHooks, RunContextWrapper, Tool
+
+class CustomHooks(AgentHooks):
+    async def on_tool_start(self, context: RunContextWrapper, agent: Agent, tool: Tool) -> None:
+        print(f"Agent {agent.name} started tool {tool.name}")
+        
+    async def on_tool_end(self, context: RunContextWrapper, agent: Agent, tool: Tool, result: str) -> None:
+        print(f"Agent {agent.name} finished tool {tool.name} with result: {result}")
+
+agent = Agent(
+    name="Tool User",
+    instructions="Use tools to accomplish tasks.",
+    tools=[my_tool],
+    hooks=CustomHooks()
+)
+```
+
+## Example: Multiple Tools
+
+```python
+from agents import Agent, Runner, function_tool
+import asyncio
+
+@function_tool
+def add_numbers(a: int, b: int) -> int:
+    """Add two numbers together."""
+    return a + b
+
+@function_tool
+def multiply_numbers(a: int, b: int) -> int:
+    """Multiply two numbers together."""
+    return a * b
+
+async def main():
+    agent = Agent(
+        name="Math Assistant",
+        instructions="You help with math calculations.",
+        tools=[add_numbers, multiply_numbers]
+    )
+    
+    result = await Runner.run(agent, "I need to add 5 and 7, then multiply by 2.")
+    print(result.final_output)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+``` 
