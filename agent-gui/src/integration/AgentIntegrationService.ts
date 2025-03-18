@@ -1,242 +1,341 @@
 import { Agent, AgentStatus } from "../types/Agent";
 import { TLShapeId, createShapeId } from "tldraw";
 import { AgentConfig, AgentInstance, WorkflowDefinition, ExecutionStatus, ExecutionResult } from './types'
+import { ApiClient } from "./ApiClient";
 
 export class AgentIntegrationService {
-  private agents: Map<TLShapeId, Agent> = new Map()
+  private agents: Map<TLShapeId, AgentInstance> = new Map()
   private executionLog: Array<{ timestamp: Date; agentId: string; message: string; level: 'info' | 'error' | 'debug' }> = []
+  private apiClient: ApiClient = new ApiClient()
+  private statusSocket: WebSocket | null = null
+  private monitorSocket: WebSocket | null = null
+  private statusUpdateCallbacks: ((agentId: string, status: AgentStatus, lastInput?: string) => void)[] = []
+  
+  // Maps to translate between backend IDs and tldraw shape IDs
+  private backendToTldrawMap: Map<string, TLShapeId> = new Map()
+  private tldrawToBackendMap: Map<string, string> = new Map()
   
   constructor() {
-    // Initialize with some example agents for development
-    const mockAgents: Agent[] = [
-      {
-        id: createShapeId(),
-        name: 'Search Agent',
-        prompt: 'I am a search agent that helps find information.',
-        tools: ['search', 'summarize'],
-        parameters: {
-          temperature: 0.7,
-          maxTokens: 1000
-        },
-        status: 'idle',
-        lastInput: null
-      },
-      {
-        id: createShapeId(),
-        name: 'Code Assistant',
-        prompt: 'I am a coding assistant that helps with programming tasks.',
-        tools: ['code_completion', 'code_review'],
-        parameters: {
-          temperature: 0.3,
-          maxTokens: 2000
-        },
-        status: 'idle',
-        lastInput: null
-      },
-      {
-        id: createShapeId(),
-        name: 'Data Analyzer',
-        prompt: 'I analyze data and provide insights.',
-        tools: ['data_analysis', 'visualization'],
-        parameters: {
-          temperature: 0.5,
-          maxTokens: 1500
-        },
-        status: 'idle',
-        lastInput: null
+    this.initializeWebSockets()
+  }
+  
+  // ID mapping methods
+  mapBackendIdToShapeId(backendId: string, shapeId: TLShapeId): void {
+    this.backendToTldrawMap.set(backendId, shapeId);
+    this.tldrawToBackendMap.set(shapeId.toString(), backendId);
+    console.log(`Mapped backend ID ${backendId} to tldraw ID ${shapeId}`);
+  }
+  
+  getTldrawIdForBackendId(backendId: string): TLShapeId | null {
+    return this.backendToTldrawMap.get(backendId) || null;
+  }
+  
+  getBackendIdForTldrawId(shapeId: TLShapeId): string | null {
+    return this.tldrawToBackendMap.get(shapeId.toString()) || null;
+  }
+  
+  private initializeWebSockets() {
+    try {
+      // Initialize status WebSocket
+      const statusSocketUrl = this.apiClient.getStatusWebSocketUrl()
+      this.statusSocket = new WebSocket(statusSocketUrl)
+      
+      this.statusSocket.onopen = () => {
+        console.log('Status WebSocket connection established')
       }
-    ]
-
-    // Add mock agents to the map
-    mockAgents.forEach(agent => this.agents.set(agent.id, agent))
-  }
-  
-  async createAgent(agentData: Omit<Agent, 'id' | 'status' | 'lastInput'>): Promise<Agent> {
-    const id = createShapeId()
-    const newAgent: Agent = {
-      ...agentData,
-      id,
-      status: 'idle',
-      lastInput: ''
+      
+      this.statusSocket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          if (data.type === 'agent_update') {
+            const backendAgentId = data.agent_id
+            const status = data.data.status as AgentStatus
+            const lastInput = data.data.last_input
+            
+            // Get the tldraw ID for this backend ID
+            const tldrawId = this.getTldrawIdForBackendId(backendAgentId)
+            
+            if (tldrawId) {
+              // Update agent status using the tldraw ID
+              const agent = this.agents.get(tldrawId)
+              if (agent) {
+                agent.status = status
+                agent.lastInput = lastInput || ''
+                this.agents.set(tldrawId, agent)
+                
+                // Notify subscribers using the tldraw ID
+                this.statusUpdateCallbacks.forEach(callback => 
+                  callback(tldrawId.toString(), status, lastInput)
+                )
+              }
+            } else {
+              console.warn(`Received update for unknown agent ID: ${backendAgentId}`)
+            }
+          }
+        } catch (error) {
+          console.error('Error processing WebSocket message:', error)
+        }
+      }
+      
+      this.statusSocket.onerror = (error) => {
+        console.error('Status WebSocket error:', error)
+      }
+      
+      this.statusSocket.onclose = () => {
+        console.log('Status WebSocket connection closed')
+        // Attempt to reconnect after a delay
+        setTimeout(() => this.initializeWebSockets(), 5000)
+      }
+      
+      // Initialize monitor WebSocket
+      const monitorSocketUrl = this.apiClient.getMonitorWebSocketUrl()
+      this.monitorSocket = new WebSocket(monitorSocketUrl)
+      
+      this.monitorSocket.onopen = () => {
+        console.log('Monitor WebSocket connection established')
+      }
+      
+      this.monitorSocket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          console.log('Performance metrics:', data.metrics)
+          // Handle performance metrics
+        } catch (error) {
+          console.error('Error processing monitor message:', error)
+        }
+      }
+    } catch (error) {
+      console.error('Error initializing WebSockets:', error)
     }
-    
-    this.agents.set(id, newAgent)
-    return newAgent
   }
   
-  async updateAgent(id: TLShapeId, config: Partial<AgentConfig>): Promise<Agent> {
-    const agentData = this.agents.get(id)
-    if (!agentData) {
-      throw new Error(`Agent with id ${id} not found`)
+  onStatusUpdate(callback: (agentId: string, status: AgentStatus, lastInput?: string) => void) {
+    this.statusUpdateCallbacks.push(callback)
+    return () => {
+      this.statusUpdateCallbacks = this.statusUpdateCallbacks.filter(cb => cb !== callback)
     }
-    
-    const updatedAgent: Agent = {
-      ...agentData,
-      ...config,
+  }
+  
+  async createAgent(agentConfig: AgentConfig): Promise<Agent> {
+    try {
+      // Call backend API to create the agent
+      const response = await this.apiClient.createAgent(agentConfig)
+      if (!response) {
+        throw new Error('Failed to create agent on the backend')
+      }
+      
+      // Create a valid tldraw shape ID
+      const id = createShapeId();
+      
+      // Map the backend ID to this tldraw shape ID
+      this.mapBackendIdToShapeId(response.id, id);
+      
+      // Create local instance
+      const agent: Agent = {
+        id: id,
+        name: agentConfig.name,
+        prompt: agentConfig.prompt,
+        tools: agentConfig.tools || [],
+        parameters: agentConfig.parameters || {},
+        status: 'idle',
+        lastInput: ''
+      }
+      
+      // Store agent instance
+      const instance: AgentInstance = {
+        id: agent.id,
+        config: agentConfig,
+        status: 'idle',
+        lastInput: '',
+        lastOutput: '',
+        metrics: {
+          executionCount: 0,
+          averageExecutionTime: 0,
+          lastExecutionTime: 0
+        }
+      }
+      
+      this.agents.set(agent.id, instance)
+      
+      // Subscribe to status updates
+      if (this.statusSocket && this.statusSocket.readyState === WebSocket.OPEN) {
+        this.statusSocket.send(JSON.stringify({
+          type: 'subscribe',
+          agent_ids: [response.id] // Use the backend ID for WebSocket subscriptions
+        }))
+      }
+      
+      return agent
+    } catch (error) {
+      console.error('Error creating agent:', error)
+      // Create a local-only agent as fallback
+      const id = createShapeId()
+      const agent: Agent = {
+        id,
+        name: agentConfig.name,
+        prompt: agentConfig.prompt,
+        tools: agentConfig.tools || [],
+        parameters: agentConfig.parameters || {},
+        status: 'idle',
+        lastInput: ''
+      }
+      
+      const instance: AgentInstance = {
+        id: agent.id,
+        config: agentConfig,
+        status: 'idle',
+        lastInput: '',
+        lastOutput: '',
+        metrics: {
+          executionCount: 0,
+          averageExecutionTime: 0,
+          lastExecutionTime: 0
+        }
+      }
+      
+      this.agents.set(agent.id, instance)
+      return agent
     }
-    
-    this.agents.set(id, updatedAgent)
-    this.logDebug(id, `Agent updated: ${updatedAgent.name}`)
-    return updatedAgent
   }
   
-  async deleteAgent(agentId: TLShapeId): Promise<boolean> {
-    return this.agents.delete(agentId)
-  }
-  
-  async executeWorkflow(workflow: WorkflowDefinition): Promise<ExecutionResult> {
-    const executionResult: ExecutionResult = {
-      success: true,
-      errors: [],
-      completedAgents: [],
-      skippedAgents: [],
-      failedAgents: []
+  async executeAgent(agentId: TLShapeId, input: string): Promise<ExecutionResult> {
+    const agent = this.agents.get(agentId)
+    if (!agent) {
+      throw new Error(`Agent with ID ${agentId} not found`)
     }
     
     try {
-      // Initialize execution graph
-      const executionGraph = new Map<string, Set<string>>()
+      // Update local status
+      agent.status = 'processing'
+      agent.lastInput = input
+      this.agents.set(agentId, agent)
       
-      // Build execution graph from connections
-      for (const connection of workflow.connections) {
-        if (!executionGraph.has(connection.sourceId)) {
-          executionGraph.set(connection.sourceId, new Set())
-        }
-        executionGraph.get(connection.sourceId)!.add(connection.targetId)
+      // Notify subscribers of status change
+      this.statusUpdateCallbacks.forEach(callback => 
+        callback(agentId.toString(), 'processing', input)
+      )
+      
+      // Get the backend ID for this tldraw shape ID
+      const backendId = this.getBackendIdForTldrawId(agentId);
+      
+      if (!backendId) {
+        throw new Error(`No backend ID found for tldraw ID ${agentId}`);
       }
       
-      // Find root nodes (agents with no incoming connections)
-      const incomingConnections = new Set(workflow.connections.map(c => c.targetId))
-      const rootNodes = workflow.agents
-        .map(a => a.id)
-        .filter(id => !incomingConnections.has(id))
+      // Call backend API to execute the agent using the backend ID
+      const result = await this.apiClient.executeAgent(backendId, input)
       
-      if (rootNodes.length === 0) {
-        throw new Error('Workflow has no root nodes. Please ensure there is at least one agent that is not a target of any connection.')
+      // Update agent with result
+      agent.status = 'idle'
+      agent.lastOutput = result.output
+      agent.metrics.executionCount++
+      agent.metrics.lastExecutionTime = result.execution_time
+      agent.metrics.averageExecutionTime = 
+        (agent.metrics.averageExecutionTime * (agent.metrics.executionCount - 1) + result.execution_time) / 
+        agent.metrics.executionCount
+      
+      this.agents.set(agentId, agent)
+      
+      // Notify subscribers of status change
+      this.statusUpdateCallbacks.forEach(callback => 
+        callback(agentId.toString(), 'idle')
+      )
+      
+      return {
+        agentId,
+        input,
+        output: result.output,
+        status: 'completed',
+        executionTime: result.execution_time
       }
-      
-      // Check for cycles in the graph
-      const hasCycle = this.detectCycles(executionGraph)
-      if (hasCycle) {
-        throw new Error('Workflow contains cycles. Please ensure the workflow is a directed acyclic graph.')
-      }
-      
-      // Execute workflow starting from root nodes
-      const executedAgents = new Set<string>()
-      
-      const executeAgent = async (agentId: string) => {
-        if (executedAgents.has(agentId)) {
-          executionResult.skippedAgents.push(agentId)
-          return
-        }
-        
-        const agentData = this.agents.get(agentId)
-        if (!agentData) {
-          const errorMsg = `Agent ${agentId} not found`
-          executionResult.errors.push(errorMsg)
-          executionResult.failedAgents.push(agentId)
-          this.logError(agentId, errorMsg)
-          return
-        }
-        
-        try {
-          this.logInfo(agentId, `Execution started`)
-          agentData.status = 'running'
-          
-          const startTime = performance.now()
-          const result = await agentData.executor.execute()
-          const endTime = performance.now()
-          const executionTime = endTime - startTime
-          
-          // Update metrics
-          const { metrics } = agentData
-          metrics.executionCount += 1
-          metrics.lastExecutionTime = executionTime
-          metrics.averageExecutionTime = 
-            ((metrics.averageExecutionTime * (metrics.executionCount - 1)) + executionTime) / 
-            metrics.executionCount
-          
-          agentData.status = 'idle'
-          agentData.lastOutput = result
-          
-          executedAgents.add(agentId)
-          executionResult.completedAgents.push(agentId)
-          
-          this.logInfo(agentId, `Execution completed in ${executionTime.toFixed(2)}ms`)
-          
-          // Execute next agents in the workflow
-          const nextAgents = executionGraph.get(agentId) || new Set()
-          await Promise.all([...nextAgents].map(executeAgent))
-        } catch (error) {
-          agentData.status = 'idle'
-          const errorMsg = error instanceof Error ? error.message : String(error)
-          executionResult.errors.push(errorMsg)
-          executionResult.failedAgents.push(agentId)
-          this.logError(agentId, `Execution failed: ${errorMsg}`)
-          
-          // Handle error based on connections type
-          const nextAgents = executionGraph.get(agentId) || new Set()
-          if (nextAgents.size > 0) {
-            // Only execute agents connected via 'error' or 'always' type connections
-            const errorConnections = workflow.connections
-              .filter(c => c.sourceId === agentId && (c.type === 'error' || c.type === 'always'))
-              .map(c => c.targetId)
-            
-            await Promise.all([...errorConnections].map(executeAgent))
-          }
-        }
-      }
-      
-      this.logInfo('system', `Workflow execution started with ${rootNodes.length} root nodes`)
-      await Promise.all(rootNodes.map(executeAgent))
-      this.logInfo('system', `Workflow execution completed`)
-      
-      // Check if any agents failed
-      if (executionResult.failedAgents.length > 0) {
-        executionResult.success = false
-      }
-      
-      return executionResult
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error)
-      executionResult.success = false
-      executionResult.errors.push(errorMsg)
-      this.logError('system', `Workflow execution failed: ${errorMsg}`)
-      return executionResult
+      console.error('Error executing agent:', error)
+      
+      // Update agent status to error
+      agent.status = 'error'
+      this.agents.set(agentId, agent)
+      
+      // Notify subscribers of status change
+      this.statusUpdateCallbacks.forEach(callback => 
+        callback(agentId.toString(), 'error')
+      )
+      
+      return {
+        agentId,
+        input,
+        output: error instanceof Error ? error.message : String(error),
+        status: 'error',
+        executionTime: 0
+      }
     }
   }
   
-  // Detect cycles in the execution graph
-  private detectCycles(graph: Map<string, Set<string>>): boolean {
-    const visited = new Set<string>()
-    const recursionStack = new Set<string>()
-    
-    const hasCycleFromNode = (nodeId: string): boolean => {
-      if (!visited.has(nodeId)) {
-        visited.add(nodeId)
-        recursionStack.add(nodeId)
-        
-        const neighbors = graph.get(nodeId) || new Set()
-        for (const neighbor of neighbors) {
-          if (!visited.has(neighbor) && hasCycleFromNode(neighbor)) {
-            return true
-          } else if (recursionStack.has(neighbor)) {
-            return true
-          }
-        }
-      }
-      
-      recursionStack.delete(nodeId)
-      return false
-    }
-    
-    for (const nodeId of graph.keys()) {
-      if (!visited.has(nodeId) && hasCycleFromNode(nodeId)) {
-        return true
+  getAgentStatus(agentId: TLShapeId): ExecutionStatus {
+    const agent = this.agents.get(agentId)
+    if (!agent) {
+      return {
+        agentId,
+        status: 'idle',
+        lastInput: '',
+        lastOutput: ''
       }
     }
     
-    return false
+    return {
+      agentId,
+      status: agent.status,
+      lastInput: agent.lastInput,
+      lastOutput: agent.lastOutput
+    }
+  }
+  
+  getAgentConfig(agentId: TLShapeId): AgentConfig | null {
+    const agent = this.agents.get(agentId)
+    return agent ? agent.config : null
+  }
+  
+  updateAgentConfig(agentId: TLShapeId, config: Partial<AgentConfig>): boolean {
+    const agent = this.agents.get(agentId)
+    if (!agent) return false
+    
+    // Update local agent config
+    agent.config = {
+      ...agent.config,
+      ...config
+    }
+    
+    this.agents.set(agentId, agent)
+    
+    // Get the backend ID for this tldraw shape ID
+    const backendId = this.getBackendIdForTldrawId(agentId);
+    
+    // Try to update on backend if we have a backend ID
+    if (backendId) {
+      this.apiClient.updateAgent(backendId, config).catch(error => {
+        console.error('Error updating agent config on backend:', error)
+      });
+    } else {
+      console.warn(`Cannot update backend: No backend ID found for tldraw ID ${agentId}`);
+    }
+    
+    return true
+  }
+  
+  createWorkflow(definition: WorkflowDefinition): string {
+    // Simple workflow creation - in a real app, this would call the backend
+    return 'workflow-' + Math.random().toString(36).substring(2, 9)
+  }
+  
+  // This method would be expanded in a real implementation
+  executeWorkflow(workflowId: string, input: string): Promise<ExecutionResult> {
+    // For now, just a placeholder that delegates to the first agent
+    return Promise.resolve({
+      agentId: 'workflow-' + workflowId as TLShapeId,
+      input,
+      output: 'Workflow execution not yet implemented',
+      status: 'completed',
+      executionTime: 0
+    })
   }
   
   async getExecutionStatus(): Promise<ExecutionStatus> {
@@ -252,16 +351,8 @@ export class AgentIntegrationService {
     }
   }
   
-  async getAgentStatus(id: string): Promise<'idle' | 'running' | 'processing'> {
-    const agentData = this.agents.get(id)
-    if (!agentData) {
-      throw new Error(`Agent with id ${id} not found`)
-    }
-    return agentData.status
-  }
-  
   async getAllAgents(): Promise<Agent[]> {
-    return Array.from(this.agents.values())
+    return Array.from(this.agents.values()).map(a => a.config as Agent)
   }
   
   async getAvailableTools(): Promise<string[]> {
@@ -303,7 +394,75 @@ export class AgentIntegrationService {
   }
 
   async getExistingAgents(): Promise<Agent[]> {
-    return Array.from(this.agents.values())
+    try {
+      // First, try to get agents from the backend API
+      const apiAgents = await this.apiClient.getAgents();
+      
+      // If we have agents from the API, update our local map and return them
+      if (apiAgents && apiAgents.length > 0) {
+        console.log('Loaded agents from backend:', apiAgents);
+        
+        const result: Agent[] = [];
+        
+        // Process each agent from the API
+        for (const backendAgent of apiAgents) {
+          // For each backend agent, create a valid tldraw ID
+          // We'll let the caller create the actual shape with this ID
+          const tlDrawId = createShapeId();
+          
+          // Map the backend ID to this tldraw ID
+          this.mapBackendIdToShapeId(backendAgent.id, tlDrawId);
+          
+          // Create a local instance
+          const instance: AgentInstance = {
+            id: tlDrawId,
+            config: {
+              name: backendAgent.name,
+              prompt: backendAgent.prompt,
+              tools: backendAgent.tools || [],
+              parameters: backendAgent.parameters || {}
+            },
+            status: 'idle',
+            lastInput: '',
+            lastOutput: '',
+            metrics: {
+              executionCount: 0,
+              averageExecutionTime: 0,
+              lastExecutionTime: 0
+            }
+          };
+          
+          // Store in local map
+          this.agents.set(tlDrawId, instance);
+          
+          // Add to result with the tldraw ID
+          result.push({
+            id: tlDrawId,
+            name: backendAgent.name,
+            prompt: backendAgent.prompt,
+            tools: backendAgent.tools || [],
+            parameters: backendAgent.parameters || {},
+            status: 'idle',
+            lastInput: ''
+          });
+        }
+        
+        return result;
+      }
+    } catch (error) {
+      console.error('Error fetching agents from backend:', error);
+    }
+    
+    // Fallback to local agents if API call fails
+    return Array.from(this.agents.values()).map(a => ({
+      id: a.id,
+      name: a.config.name,
+      prompt: a.config.prompt,
+      tools: a.config.tools || [],
+      parameters: a.config.parameters || {},
+      status: a.status,
+      lastInput: a.lastInput
+    }));
   }
 
   async getAgentStatuses(agentIds: TLShapeId[]): Promise<Array<{

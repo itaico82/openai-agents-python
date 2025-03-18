@@ -217,27 +217,34 @@ export default function App() {
       setIsLoading(true)
       
       // Get existing agents from the integration service
+      // This already creates tldraw IDs and maps them to backend IDs
       const existingAgents = await integrationService.getExistingAgents()
+      console.log('Loaded existing agents:', existingAgents);
+      
+      if (existingAgents.length === 0) {
+        setIsLoading(false);
+        return;
+      }
       
       // Create shapes for each agent
       existingAgents.forEach((agent) => {
-        const id = createShapeId()
-        const shape = shapeMapper.toShape(agent, id)
+        // The agent already has a valid tldraw ID from getExistingAgents
+        const shape = shapeMapper.toShape(agent, agent.id)
         
         // Add the shape to the editor
         editor.createShape(shape)
         
         // Position the shape (you might want to implement a layout algorithm)
         editor.updateShape({
-          id: shape.id,
+          id: agent.id,
           type: 'agent',
           x: Math.random() * 600 + 100, // Random position for now
           y: Math.random() * 400 + 100,
         })
       })
       
-      // Start monitoring agent statuses
-      startStatusMonitoring(editor, existingAgents.map(a => a.id))
+      // Start monitoring agent statuses with the tldraw shape IDs
+      startStatusMonitoring(editor, existingAgents.map(a => a.id));
     } catch (error) {
       console.error('Failed to load initial state:', error)
     } finally {
@@ -275,26 +282,65 @@ export default function App() {
     return () => clearInterval(intervalId)
   }
 
-  const handleAddAgent = () => {
+  const handleAddAgent = async () => {
     if (!editor) return
 
-    const id = createShapeId()
-    editor.createShape({
-      id,
-      type: 'agent',
-      x: 100,
-      y: 100,
-      props: {
+    try {
+      // Create agent config
+      const agentConfig = {
         name: 'New Agent',
-        status: 'idle',
-        prompt: '',
-        lastInput: '',
+        prompt: 'You are a helpful assistant.',
         tools: [],
-        parameters: {},
-        w: 200,
-        h: 150,
-      },
-    })
+        parameters: {}
+      };
+
+      // Create the agent through the integration service
+      // This will already create a valid tldraw ID
+      const newAgent = await integrationService.createAgent(agentConfig);
+      
+      if (newAgent) {
+        // Create the shape to represent this agent using the tldraw ID from the service
+        editor.createShape({
+          id: newAgent.id,
+          type: 'agent',
+          x: 100,
+          y: 100,
+          props: {
+            name: newAgent.name,
+            status: 'idle',
+            prompt: newAgent.prompt,
+            lastInput: '',
+            tools: newAgent.tools || [],
+            parameters: newAgent.parameters || {},
+            w: 200,
+            h: 150,
+          },
+        });
+        
+        console.log('Agent created successfully on backend and in UI:', newAgent);
+      }
+    } catch (error) {
+      console.error('Failed to create agent:', error);
+      
+      // Fallback to local-only creation if backend creation fails
+      const id = createShapeId();
+      editor.createShape({
+        id,
+        type: 'agent',
+        x: 100,
+        y: 100,
+        props: {
+          name: 'New Agent (Local Only)',
+          status: 'idle',
+          prompt: '',
+          lastInput: '',
+          tools: [],
+          parameters: {},
+          w: 200,
+          h: 150,
+        },
+      });
+    }
   }
 
   const handleConfigPanelClose = () => {

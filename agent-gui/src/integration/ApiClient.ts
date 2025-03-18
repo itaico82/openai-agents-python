@@ -4,54 +4,100 @@ import { AgentConfig } from "./types";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 export class ApiClient {
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-    });
+    private baseUrl: string;
 
-    if (!response.ok) {
-      throw new Error(`API request failed: ${response.statusText}`);
+    constructor() {
+        this.baseUrl = API_BASE_URL;
+        console.log('API Client initialized with base URL:', this.baseUrl);
     }
 
-    return response.json();
-  }
+    // Agent endpoints
+    async getAgents(): Promise<Agent[]> {
+        try {
+            const url = `${this.baseUrl}/api/agents`;
+            console.log('Fetching agents from:', url);
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch agents: ${response.statusText}`);
+            }
+            const data = await response.json();
+            console.log('Agents fetched successfully:', data);
+            return data;
+        } catch (error) {
+            console.error('Error fetching agents:', error);
+            return [];
+        }
+    }
 
-  async executeAgent(agentId: string, input: string): Promise<any> {
-    return this.request('/execute', {
-      method: 'POST',
-      body: JSON.stringify({ agent_id: agentId, input }),
-    });
-  }
+    async createAgent(agentConfig: AgentConfig): Promise<Agent | null> {
+        try {
+            const response = await fetch(`${this.baseUrl}/api/agents`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(agentConfig),
+            });
 
-  async createAgent(config: AgentConfig): Promise<Agent> {
-    return this.request('/agents', {
-      method: 'POST',
-      body: JSON.stringify(config),
-    });
-  }
+            if (!response.ok) {
+                throw new Error(`Failed to create agent: ${response.statusText}`);
+            }
 
-  async updateAgent(agentId: string, config: Partial<AgentConfig>): Promise<Agent> {
-    return this.request(`/agents/${agentId}`, {
-      method: 'PATCH',
-      body: JSON.stringify(config),
-    });
-  }
+            return await response.json();
+        } catch (error) {
+            console.error('Error creating agent:', error);
+            return null;
+        }
+    }
 
-  async deleteAgent(agentId: string): Promise<void> {
-    return this.request(`/agents/${agentId}`, {
-      method: 'DELETE',
-    });
-  }
+    async updateAgent(agentId: string, agentConfig: Partial<AgentConfig>): Promise<Agent | null> {
+        try {
+            const response = await fetch(`${this.baseUrl}/api/agents/${agentId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(agentConfig),
+            });
 
-  async getAgent(agentId: string): Promise<Agent> {
-    return this.request(`/agents/${agentId}`);
-  }
+            if (!response.ok) {
+                throw new Error(`Failed to update agent: ${response.statusText}`);
+            }
 
-  async getAllAgents(): Promise<Agent[]> {
-    return this.request('/agents');
-  }
+            return await response.json();
+        } catch (error) {
+            console.error('Error updating agent:', error);
+            return null;
+        }
+    }
+
+    async executeAgent(agentId: string, input: string): Promise<any> {
+        try {
+            const response = await fetch(`${this.baseUrl}/api/agents/${agentId}/execute`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ input }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to execute agent: ${response.statusText}`);
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('Error executing agent:', error);
+            throw error;
+        }
+    }
+
+    // WebSocket connection for real-time updates
+    getStatusWebSocketUrl(): string {
+        return `ws://${new URL(this.baseUrl).host}/api/ws/status`;
+    }
+
+    getMonitorWebSocketUrl(): string {
+        return `ws://${new URL(this.baseUrl).host}/api/ws/monitor`;
+    }
 } 

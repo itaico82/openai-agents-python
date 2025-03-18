@@ -10,12 +10,15 @@ A visual interface for managing and monitoring OpenAI agents built with:
 - React + TypeScript
 - Vite
 - tldraw for the canvas interface
+- FastAPI backend for persistence
 
 Features:
 - Visual agent creation and management
-- Real-time status monitoring
+- Real-time status monitoring via WebSockets
 - Interactive agent controls
 - Drag-and-drop interface
+- Backend persistence with PostgreSQL
+- Bidirectional ID mapping between backend UUIDs and tldraw shape IDs
 
 ### Python SDK Examples
 
@@ -32,22 +35,38 @@ Collection of examples and patterns for using the OpenAI Agents SDK:
 
 ### Agent GUI
 
-1. Navigate to the agent-gui directory:
+1. Install backend dependencies:
+```bash
+pip install -r backend/requirements.txt
+```
+
+2. Configure your environment by creating a `.env` file in the project root:
+```
+OPENAI_API_KEY=your_openai_api_key
+```
+
+3. Start the backend server:
+```bash
+cd backend
+python run.py
+```
+
+4. Navigate to the agent-gui directory:
 ```bash
 cd agent-gui
 ```
 
-2. Install dependencies:
+5. Install frontend dependencies:
 ```bash
 npm install
 ```
 
-3. Start the development server:
+6. Start the frontend development server:
 ```bash
 npm run dev
 ```
 
-4. Open http://localhost:5173 in your browser
+7. Open http://localhost:5173 in your browser
 
 ### Python SDK Examples
 
@@ -71,6 +90,7 @@ pip install -r requirements.txt
 - [Tools and Integrations](docs/tools.md)
 - [Tracing and Monitoring](docs/tracing.md)
 - [Project Execution Plan](docs/EXECUTION_PLAN.md)
+- [Running Backend & Frontend Servers](docs/RUNNING_SERVERS.md)
 
 ## Contributing
 

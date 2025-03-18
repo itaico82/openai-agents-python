@@ -108,12 +108,13 @@ export const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({
     return Object.keys(errors).length === 0
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!validateForm() || !agentId) return
     
     const shape = editor.getShape(agentId)
     if (shape?.type !== 'agent') return
     
+    // Update local shape
     editor.updateShape({
       id: agentId,
       type: 'agent',
@@ -125,6 +126,26 @@ export const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({
         parameters
       }
     })
+    
+    // Update agent on the backend
+    try {
+      const updatedConfig = {
+        name,
+        prompt,
+        tools: selectedTools,
+        parameters
+      };
+      
+      const success = integrationService.updateAgentConfig(agentId, updatedConfig);
+      
+      if (success) {
+        console.log('Agent configuration saved to backend successfully');
+      } else {
+        console.warn('Failed to save agent configuration to backend');
+      }
+    } catch (error) {
+      console.error('Error saving agent configuration to backend:', error);
+    }
     
     onClose()
   }
