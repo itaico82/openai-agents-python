@@ -70,16 +70,16 @@ AgentGUI is a visual interface built on tldraw for managing and monitoring OpenA
 ### Stage 6: OpenAI Agents Integration [/]
 - [/] Implement agent creation/management
   - [x] Agent instantiation
-  - [/] Configuration mapping
-  - [ ] Tool integration
-- [ ] Add workflow execution
-  - [ ] Workflow validation
-  - [ ] Execution management
-  - [ ] Error handling
-- [ ] Create monitoring bridges
-  - [ ] Status synchronization
-  - [ ] Performance tracking
-  - [ ] Debug information
+  - [x] Configuration mapping
+  - [x] Tool integration
+- [/] Add workflow execution
+  - [x] Workflow validation
+  - [x] Execution management
+  - [x] Error handling
+- [/] Create monitoring bridges
+  - [x] Status synchronization
+  - [/] Performance tracking
+  - [x] Debug information
 
 ### Stage 7: Testing and Documentation [/]
 - [/] Unit testing
@@ -161,8 +161,23 @@ Each stage should be marked as:
 - Integration complexity with OpenAI Agents SDK
 
 ## Next Steps
-1. Complete agent selection and manipulation features
-2. Finish the agent configuration panel implementation
+1. Complete performance tracking for agents
+   - Implement detailed metrics visualization
+   - Add execution time tracking UI
+   - Create performance comparison tools
+2. Implement agent configuration panel
+   - Add tool selection interface
+   - Add parameter configuration
+   - Create validation for settings
 3. Begin work on workflow connections
+   - Implement custom arrow tool
+   - Add connection validation
+   - Create visual feedback
 4. Enhance real-time monitoring capabilities
-5. Continue developing OpenAI Agents integration
+   - Add input/output visualization
+   - Implement history tracking
+   - Integrate the ExecutionMonitor component
+5. Fix remaining bugs and polish
+   - ✓ Resolve tools type validation error
+   - Ensure proper serialization of complex types
+   - Improve error handling
